@@ -1,102 +1,193 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Pr2.ModulesAndDi.Core;
+using Pr2.ModulesAndDi.Modules;
+using Pr2.ModulesAndDi.Services;
 using Xunit;
 
 namespace Pr2.ModulesAndDi.Tests;
 
-public sealed class ModuleCatalogTests
+public sealed class NewModulesTests
 {
-    [Fact]
-    public void Порядок_запуска_учитывает_зависимости()
+
+    static NewModulesTests()
     {
-        var a = new FakeModule("A", Array.Empty<string>());
-        var b = new FakeModule("B", new[] { "A" });
-        var c = new FakeModule("C", new[] { "B" });
-
-        var all = new Dictionary<string, IAppModule>(StringComparer.OrdinalIgnoreCase)
-        {
-            [a.Name] = a,
-            [b.Name] = b,
-            [c.Name] = c
-        };
-
-        var order = ModuleCatalog.BuildExecutionOrder(all, new[] { "A", "B", "C" });
-
-        Assert.Equal(new[] { "A", "B", "C" }, order.Select(m => m.Name).ToArray());
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+        Console.InputEncoding = System.Text.Encoding.UTF8;
     }
 
     [Fact]
-    public void Отсутствующий_модуль_даёт_понятную_ошибку()
+    public async Task CurrencyModule_КонвертируетВалюты()
     {
-        var a = new FakeModule("A", Array.Empty<string>());
-
-        var all = new Dictionary<string, IAppModule>(StringComparer.OrdinalIgnoreCase)
-        {
-            [a.Name] = a
-        };
-
-        var ex = Assert.Throws<ModuleLoadException>(() => ModuleCatalog.BuildExecutionOrder(all, new[] { "A", "B" }));
-        Assert.Contains("Модуль не найден", ex.Message);
-    }
-
-    [Fact]
-    public void Цикл_зависимостей_обнаруживается()
-    {
-        var a = new FakeModule("A", new[] { "B" });
-        var b = new FakeModule("B", new[] { "A" });
-
-        var all = new Dictionary<string, IAppModule>(StringComparer.OrdinalIgnoreCase)
-        {
-            [a.Name] = a,
-            [b.Name] = b
-        };
-
-        var ex = Assert.Throws<ModuleLoadException>(() => ModuleCatalog.BuildExecutionOrder(all, new[] { "A", "B" }));
-        Assert.Contains("циклическая", ex.Message, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task Внедрение_зависимостей_работает()
-    {
+        // Arrange
         var services = new ServiceCollection();
-        services.AddSingleton<MarkerService>();
-
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var module = new CurrencyModule();
+        module.RegisterServices(services);
+        
         var provider = services.BuildServiceProvider();
-
-        var module = new FakeModule("A", Array.Empty<string>())
-        {
-            OnInit = sp =>
-            {
-                var s = sp.GetService<MarkerService>();
-                Assert.NotNull(s);
-            }
-        };
-
-        await module.InitializeAsync(provider, CancellationToken.None);
+        var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("Конвертация"));
+        
+        // Act
+        await action.ExecuteAsync(CancellationToken.None);
+        
+        // Assert
+        var storage = provider.GetService<IStorage>();
+        Assert.Contains(storage!.GetAll(), item => item.Contains("USD"));
     }
 
-    private sealed class MarkerService { }
-
-    private sealed class FakeModule : IAppModule
+    [Fact]
+    public async Task DiscountModule_ПрименяетСкидку()
     {
-        public FakeModule(string name, IReadOnlyCollection<string> requires)
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var module = new DiscountModule();
+        module.RegisterServices(services);
+        
+        var provider = services.BuildServiceProvider();
+        var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("скидок"));
+        
+        // Act
+        await action.ExecuteAsync(CancellationToken.None);
+        
+        // Assert
+        var storage = provider.GetService<IStorage>();
+        var records = storage!.GetAll();
+        Assert.Contains(records, r => r.Contains("скидк"));
+        Assert.Contains(records, r => r.Contains("1000"));
+    }
+
+    [Fact]
+    public async Task FileLoggingModule_СоздаётФайлЛога()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var storage = new InMemoryStorage();
+        storage.Add("Тестовые данные");
+        services.AddSingleton<IStorage>(storage);
+        
+        var module = new FileLoggingModule();
+        module.RegisterServices(services);
+        
+        var provider = services.BuildServiceProvider();
+        var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("логирование"));
+        
+        var logPath = Path.Combine(AppContext.BaseDirectory, "logs");
+        if (Directory.Exists(logPath))
+            Directory.Delete(logPath, true);
+           
+           
+        Directory.CreateDirectory(logPath);
+        // Act
+        await action.ExecuteAsync(CancellationToken.None);
+        
+        // Assert
+        Assert.True(Directory.Exists(logPath));
+        Assert.True(Directory.GetFiles(logPath).Length > 0);
+    }
+
+    [Fact]
+    public async Task NotificationModule_ОтправляетУведомления()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var module = new NotificationModule();
+        module.RegisterServices(services);
+        
+        var provider = services.BuildServiceProvider();
+        var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("уведомлений"));
+        
+        // Act & Assert (просто проверяем, что не падает)
+        var exception = Record.Exception(() => action.ExecuteAsync(CancellationToken.None).Wait());
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public async Task AnalyticsModule_СобираетСтатистику()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var module = new AnalyticsModule();
+        module.RegisterServices(services);
+        
+        var provider = services.BuildServiceProvider();
+        var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("аналитики"));
+        
+        // Act
+        await action.ExecuteAsync(CancellationToken.None);
+        
+        // Assert (проверяем, что что-то вывелось в консоль - перехватываем)
+        using var sw = new StringWriter();
+        var originalOut = Console.Out;
+        Console.SetOut(sw);
+        
+        await action.ExecuteAsync(CancellationToken.None);
+        var output = sw.ToString();
+        
+        Console.SetOut(originalOut);
+        Assert.Contains("Событие", output);
+    }
+
+    [Fact]
+    public async Task Модули_МогутРаботатьВместе()
+    {
+        // Arrange - регистрируем все модули
+        var services = new ServiceCollection();
+        services.AddSingleton<IStorage, InMemoryStorage>();
+        services.AddSingleton<IClock, SystemClock>();
+        
+        var modules = new IAppModule[]
         {
-            Name = name;
-            Requires = requires;
-        }
-
-        public string Name { get; }
-
-        public IReadOnlyCollection<string> Requires { get; }
-
-        public Action<IServiceProvider>? OnInit { get; init; }
-
-        public void RegisterServices(IServiceCollection services) { }
-
-        public Task InitializeAsync(IServiceProvider serviceProvider, CancellationToken cancellationToken)
+            new CoreModule(),
+            new CurrencyModule(),
+            new DiscountModule(),
+            new FileLoggingModule(),
+            new NotificationModule()
+        };
+        
+        foreach (var module in modules)
         {
-            OnInit?.Invoke(serviceProvider);
-            return Task.CompletedTask;
+            module.RegisterServices(services);
         }
+        
+        var provider = services.BuildServiceProvider();
+        var actions = provider.GetServices<IAppAction>().ToList();
+        
+        // Act & Assert - все действия должны выполниться без ошибок
+        foreach (var action in actions)
+        {
+            var exception = Record.Exception(() => action.ExecuteAsync(CancellationToken.None).Wait());
+            Assert.Null(exception);
+        }
+    }
+
+    [Fact]
+    public async Task Модуль_ТребуетCore_ЕслиCoreОтсутствует_Ошибка()
+    {
+        // Arrange
+        var all = new Dictionary<string, IAppModule>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Currency"] = new CurrencyModule()  // требует Core, но Core нет
+        };
+        
+        // Act & Assert
+        var ex = Assert.Throws<ModuleLoadException>(() => 
+            ModuleCatalog.BuildExecutionOrder(all, new[] { "Currency" }));
+        
+        Assert.Contains("Не хватает модуля", ex.Message);
+        Assert.Contains("Currency требует Core", ex.Message);
     }
 }

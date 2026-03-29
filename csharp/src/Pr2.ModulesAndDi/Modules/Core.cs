@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection;
 using Pr2.ModulesAndDi.Core;
 using Pr2.ModulesAndDi.Services;
 
@@ -21,7 +21,6 @@ public sealed class CoreModule : IAppModule
 
     public Task InitializeAsync(IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
-        // Базовый модуль не выполняет действий, он только подготавливает инфраструктуру
         return Task.CompletedTask;
     }
 }

@@ -1,10 +1,6 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 
 namespace Pr2.ModulesAndDi.Core;
-
-/// <summary>
-/// Контракт модуля расширения.
-/// </summary>
 public interface IAppModule
 {
     string Name { get; }
