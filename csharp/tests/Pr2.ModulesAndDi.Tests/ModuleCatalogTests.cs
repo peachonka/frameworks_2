@@ -66,12 +66,10 @@ public sealed class NewModulesTests
     {
         // Arrange
         var services = new ServiceCollection();
-        services.AddSingleton<IStorage, InMemoryStorage>();
-        services.AddSingleton<IClock, SystemClock>();
-        
         var storage = new InMemoryStorage();
         storage.Add("Тестовые данные");
         services.AddSingleton<IStorage>(storage);
+        services.AddSingleton<IClock, SystemClock>();
         
         var module = new FileLoggingModule();
         module.RegisterServices(services);
@@ -79,18 +77,38 @@ public sealed class NewModulesTests
         var provider = services.BuildServiceProvider();
         var action = provider.GetServices<IAppAction>().First(a => a.Title.Contains("логирование"));
         
-        var logPath = Path.Combine(AppContext.BaseDirectory, "logs");
-        if (Directory.Exists(logPath))
-            Directory.Delete(logPath, true);
-           
-           
-        Directory.CreateDirectory(logPath);
+        // Путь, куда модуль будет писать (должен совпадать с логикой в FileLoggingModule)
+        var logDir = Path.Combine(AppContext.BaseDirectory, "logs");
+        var expectedFileName = $"app-{DateTime.Now:yyyy-MM-dd}.log";
+        var expectedFilePath = Path.Combine(logDir, expectedFileName);
+        
+        // Не удаляем папку заранее — модуль сам создаст её при необходимости
+        // Это избежит блокировки файла, если он ещё открыт
+        
         // Act
         await action.ExecuteAsync(CancellationToken.None);
         
+        // Важно: ждём, пока асинхронная запись в файл реально завершится
+        // В модуле есть FlushAsync(), но на всякий случай добавляем небольшую задержку
+        await Task.Delay(200);
+        
         // Assert
-        Assert.True(Directory.Exists(logPath));
-        Assert.True(Directory.GetFiles(logPath).Length > 0);
+        // 1. Папка должна существовать
+        Assert.True(Directory.Exists(logDir), $"Папка логов не создана: {logDir}");
+        
+        // 2. Ожидаемый файл должен существовать
+        Assert.True(File.Exists(expectedFilePath), 
+            $"Файл лога не найден: {expectedFilePath}. " +
+            $"Файлы в папке: {string.Join(", ", Directory.GetFiles(logDir, "*", SearchOption.TopDirectoryOnly))}");
+        
+        // 3. Файл не должен быть пустым
+        var content = await File.ReadAllTextAsync(expectedFilePath);
+        Assert.NotEmpty(content);
+        
+        // 4. Файл должен содержать ожидаемые записи
+        Assert.Contains("INFO", content);
+        Assert.Contains("Приложение запущено", content);
+        Assert.Contains("Тестовая ошибка", content);
     }
 
     [Fact]

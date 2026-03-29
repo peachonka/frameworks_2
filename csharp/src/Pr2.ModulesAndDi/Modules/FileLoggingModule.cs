@@ -47,8 +47,8 @@ public sealed class FileLoggingModule : IAppModule
                 await Log("INFO", $"Содержимое хранилища: {string.Join(", ", data)}");
             }
             
-            await Log("WARN", "Это предупреждение");
-            await Log("ERROR", "Тестовая ошибка");
+            // await Log("WARN", "Это тестовое предупреждение");
+            // await Log("ERROR", "Тестовая ошибка");
             await Log("INFO", "Логирование завершено");
             
             await FlushAsync();
