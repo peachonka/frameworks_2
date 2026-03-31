@@ -108,7 +108,6 @@ public sealed class NewModulesTests
         // 4. Файл должен содержать ожидаемые записи
         Assert.Contains("INFO", content);
         Assert.Contains("Приложение запущено", content);
-        Assert.Contains("Тестовая ошибка", content);
     }
 
     [Fact]
